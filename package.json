@@ -39,5 +39,8 @@
     "semi": false,
     "singleQuote": false,
     "tabWidth": 2
+  },
+  "peerDependencies": {
+    "replicache": "^15.0.1"
   }
 }
