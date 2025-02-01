@@ -40,7 +40,7 @@ type MutationFnOut<
   S extends Schema<SInput, SOutput> = Schema<SInput, SOutput>,
 > = (args: Schema.InferInput<S>) => Promise<Output> | Output
 
-type MutatorDef<
+export type MutatorDef<
   Name extends string,
   SInput,
   SOutput,
@@ -176,6 +176,7 @@ type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
 export class ReplicacheClient<
   const Mutators extends AnyMutators = {},
   const Queries extends AnyQueries = {},
+  const RequiredMutators extends AnyMutators = {},
 > {
   #queries: Queries
   #mutators: Mutators
@@ -249,6 +250,43 @@ export class ReplicacheClient<
   }
 
   build(): ClientAPI<Mutators, Queries> {
+    // Force a compile-time error if a required mutation was not implemented.
+    type _EnsureAllMutatorsImplemented = [keyof RequiredMutators] extends [
+      keyof Mutators,
+    ]
+      ? true
+      : never
+
+    type ExpectedMutators = {
+      [K in keyof Mutators]: Mutators[K] extends MutatorDef<
+        any,
+        infer SInput,
+        any,
+        infer Output,
+        any
+      >
+        ? (tx: WriteTransaction, input: SInput) => Output
+        : never
+    }
+
+    const builtMutators: ExpectedMutators = Object.fromEntries(
+      Object.entries(this.#mutators).map(([key, mutatorDef]) => {
+        return [
+          key,
+          async (
+            tx: WriteTransaction,
+            input: Schema.InferInput<typeof mutatorDef.schema>,
+          ) => mutatorDef.fn(tx, await validate(mutatorDef.schema, input)),
+        ]
+      }),
+    ) as never
+
+    const rep: ClientAPI<Mutators, Queries>["rep"] =
+      new Replicache<ExpectedMutators>({
+        ...this.#options,
+        mutators: builtMutators,
+      })
+
     const query: ClientAPI<Mutators, Queries>["query"] = Object.fromEntries(
       Object.entries(this.#queries).map(([key, queryDef]) => {
         async function queryFn(
@@ -260,31 +298,15 @@ export class ReplicacheClient<
         queryFn.once = async function once(
           input: Schema.InferInput<typeof queryDef.schema>,
         ) {
-          return rep.query<ReturnType<typeof queryDef.fn>>(async (tx) => {
-            return queryDef.fn(tx, await validate(queryDef.schema, input))
-          })
+          return rep.query<ReturnType<typeof queryDef.fn>>(
+            async (tx: ReadTransaction) => {
+              return queryDef.fn(tx, await validate(queryDef.schema, input))
+            },
+          )
         }
-
         return [key, queryFn]
       }),
     ) as never
-
-    const mutators = Object.fromEntries(
-      Object.entries(this.#mutators).map(([key, mutatorDef]) => {
-        return [
-          key,
-          async (
-            tx: WriteTransaction,
-            input: Schema.InferInput<typeof mutatorDef.schema>,
-          ) => mutatorDef.fn(tx, await validate(mutatorDef.schema, input)),
-        ]
-      }),
-    )
-
-    const rep: ClientAPI<Mutators, Queries>["rep"] = new Replicache({
-      ...this.#options,
-      mutators,
-    }) as never
 
     const mutate: ClientAPI<Mutators, Queries>["mutate"] = Object.fromEntries(
       Object.entries(this.#mutators).map(([key, mutatorDef]) => {
@@ -318,8 +340,16 @@ export interface Register {
 
 export type AnyReplicacheClientAPI = ClientAPI<AnyMutators, AnyQueries>
 
-export type ReplicacheClientAAPI = Register extends {
+export type ReplicacheClientAPI = Register extends {
   client: infer C extends AnyReplicacheClientAPI
 }
   ? C
   : AnyReplicacheClientAPI
+
+// Helper function to create a type-safe client.
+// The third generic (RequiredMutators) receives the ServerMutations.
+export function initClient<const ServerMutations extends AnyMutators>(
+  options: ReplicacheClientOptions,
+) {
+  return new ReplicacheClient<{}, {}, ServerMutations>(options)
+}
