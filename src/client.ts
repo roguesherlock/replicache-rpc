@@ -123,7 +123,11 @@ type ClientAPI<
       ? MutationFnOut<SInput, SOutput, Output, S>
       : never
   }
-  _valid: [keyof SM] extends [keyof M] ? true : never
+  _valid: [keyof SM] extends [keyof M]
+    ? true
+    : [keyof M] extends [keyof SM]
+      ? "Client has extra mutations not defined in server"
+      : "Client is missing mutations defined in server"
 }
 
 type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">

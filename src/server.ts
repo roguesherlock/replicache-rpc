@@ -100,6 +100,8 @@ class MutationNotFoundError extends Error {
 export type ExtractServerMutations<T> =
   T extends ReplicacheServer<infer M> ? M : never
 
-export type AnyReplicacheServer = ReplicacheServer<any>
+export type AnyReplicacheServer = ReplicacheServer<{
+  [key: string]: MutatorDef<string, any, any>
+}>
 
 export type AnyMutators = ExtractServerMutations<AnyReplicacheServer>
