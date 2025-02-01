@@ -313,7 +313,7 @@ export class ReplicacheClient<
         return [
           key,
           async (input: Schema.InferInput<typeof mutatorDef.schema>) => {
-            const mutation = (rep.mutate as any)?.[key]
+            const mutation = rep.mutate[key]
             if (!mutation) {
               throw new Error("Mutation not found")
             }
