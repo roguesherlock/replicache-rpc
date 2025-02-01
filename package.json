@@ -30,7 +30,6 @@
     "@standard-schema/spec": "^1.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.0.8",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/browser": "^3.0.4",
     "arktype": "^2.0.4",
@@ -45,10 +44,14 @@
   },
   "peerDependencies": {
     "replicache": "^15.0.1",
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "@types/react": "^19.0.8"
   },
   "peerDependenciesMeta": {
     "react": {
+      "optional": true
+    },
+    "@types/react": {
       "optional": true
     }
   },
