@@ -6,7 +6,8 @@ import {
   type ReplicacheOptions,
   type WriteTransaction,
 } from "replicache"
-import type { MaybePromise, ServerMutations } from "./types"
+import type { AnyMutators as AnyReplicacheServerMutators } from "./server"
+import type { MaybePromise } from "./types"
 import { validate, type Schema } from "./util"
 
 type MutationFnIn<
@@ -82,7 +83,11 @@ type QueryDef<
 type AnyQueries = Record<string, QueryDef<string, any, any, any>>
 type AnyMutators = Record<string, MutatorDef<string, any, any, any>>
 
-type ClientAPI<M extends AnyMutators, Q extends AnyQueries> = {
+type ClientAPI<
+  SM extends AnyReplicacheServerMutators,
+  M extends AnyMutators,
+  Q extends AnyQueries,
+> = {
   rep: Replicache<{
     [K in keyof M]: M[K] extends MutatorDef<
       any,
@@ -118,6 +123,7 @@ type ClientAPI<M extends AnyMutators, Q extends AnyQueries> = {
       ? MutationFnOut<SInput, SOutput, Output, S>
       : never
   }
+  _valid: [keyof SM] extends [keyof M] ? true : never
 }
 
 type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
@@ -174,9 +180,9 @@ type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
  * @template Queries - Record of query definitions
  */
 export class ReplicacheClient<
+  const ServerMutators extends AnyReplicacheServerMutators = {},
   const Mutators extends AnyMutators = {},
   const Queries extends AnyQueries = {},
-  const RequiredMutators extends AnyMutators = {},
 > {
   #queries: Queries
   #mutators: Mutators
@@ -207,6 +213,7 @@ export class ReplicacheClient<
           MutationFnInWithoutSchema<SInput, SOutput, Output>,
         ]
   ): ReplicacheClient<
+    ServerMutators,
     Mutators & { [K in Name]: MutatorDef<Name, SInput, SOutput, Output> },
     Queries
   > {
@@ -233,6 +240,7 @@ export class ReplicacheClient<
     schema: Schema<SInput, SOutput>,
     queryFn: QueryFnIn<SInput, SOutput, Output>,
   ): ReplicacheClient<
+    ServerMutators,
     Mutators,
     Queries & { [K in Name]: QueryDef<Name, SInput, SOutput, Output> }
   > {
@@ -249,14 +257,8 @@ export class ReplicacheClient<
     return new ReplicacheClient(this.#options, queries, this.#mutators)
   }
 
-  build(): ClientAPI<Mutators, Queries> {
-    // Force a compile-time error if a required mutation was not implemented.
-    type _EnsureAllMutatorsImplemented = [keyof RequiredMutators] extends [
-      keyof Mutators,
-    ]
-      ? true
-      : never
-
+  build(): ClientAPI<ServerMutators, Mutators, Queries> {
+    type Client = ClientAPI<ServerMutators, Mutators, Queries>
     type ExpectedMutators = {
       [K in keyof Mutators]: Mutators[K] extends MutatorDef<
         any,
@@ -281,13 +283,12 @@ export class ReplicacheClient<
       }),
     ) as never
 
-    const rep: ClientAPI<Mutators, Queries>["rep"] =
-      new Replicache<ExpectedMutators>({
-        ...this.#options,
-        mutators: builtMutators,
-      })
+    const rep: Client["rep"] = new Replicache<ExpectedMutators>({
+      ...this.#options,
+      mutators: builtMutators,
+    })
 
-    const query: ClientAPI<Mutators, Queries>["query"] = Object.fromEntries(
+    const query: Client["query"] = Object.fromEntries(
       Object.entries(this.#queries).map(([key, queryDef]) => {
         async function queryFn(
           tx: ReadTransaction,
@@ -308,7 +309,7 @@ export class ReplicacheClient<
       }),
     ) as never
 
-    const mutate: ClientAPI<Mutators, Queries>["mutate"] = Object.fromEntries(
+    const mutate: Client["mutate"] = Object.fromEntries(
       Object.entries(this.#mutators).map(([key, mutatorDef]) => {
         return [
           key,
@@ -327,29 +328,24 @@ export class ReplicacheClient<
       rep,
       query,
       mutate,
+      _valid: true as any,
     }
   }
 }
 
-export type MakeClientAPI<C extends ReplicacheClient<AnyMutators, AnyQueries>> =
-  C extends ReplicacheClient<infer M, infer Q> ? ClientAPI<M, Q> : never
+export type MakeClientAPI<
+  C extends ReplicacheClient<
+    AnyReplicacheServerMutators,
+    AnyMutators,
+    AnyQueries
+  >,
+> =
+  C extends ReplicacheClient<infer SM, infer M, infer Q>
+    ? ClientAPI<SM, M, Q>
+    : never
 
-export interface Register {
-  // client: ReplicacheClient
-}
-
-export type AnyReplicacheClientAPI = ClientAPI<AnyMutators, AnyQueries>
-
-export type ReplicacheClientAPI = Register extends {
-  client: infer C extends AnyReplicacheClientAPI
-}
-  ? C
-  : AnyReplicacheClientAPI
-
-// Helper function to create a type-safe client.
-// The third generic (RequiredMutators) receives the ServerMutations.
-export function initClient<const S extends ServerMutations<{}>>(
-  options: ReplicacheClientOptions,
-) {
-  return new ReplicacheClient<{}, {}, S>(options)
-}
+export type AnyReplicacheClientAPI = ClientAPI<
+  AnyReplicacheServerMutators,
+  AnyMutators,
+  AnyQueries
+>

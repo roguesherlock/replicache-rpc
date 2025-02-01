@@ -96,3 +96,10 @@ class MutationNotFoundError extends Error {
     super(`Unknown mutation: ${name}`)
   }
 }
+
+export type ExtractServerMutations<T> =
+  T extends ReplicacheServer<infer M> ? M : never
+
+export type AnyReplicacheServer = ReplicacheServer<any>
+
+export type AnyMutators = ExtractServerMutations<AnyReplicacheServer>

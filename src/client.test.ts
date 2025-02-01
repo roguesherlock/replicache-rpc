@@ -1,13 +1,12 @@
 import { type } from "arktype"
 import {
-  type ReadTransaction,
   TEST_LICENSE_KEY,
+  type ReadTransaction,
   type WriteTransaction,
 } from "replicache"
 import { describe, expect, test } from "vitest"
-import { initClient, ReplicacheClient } from "./client"
-import { ReplicacheServer } from "./server"
-import type { ExtractServerMutations } from "./types"
+import { ReplicacheClient } from "./client"
+import { ReplicacheServer, type ExtractServerMutations } from "./server"
 
 function createReplicacheClient() {
   return new ReplicacheClient({
@@ -179,7 +178,17 @@ describe("ReplicacheClient", () => {
       async (input) => {},
     )
     type ServerMutations = ExtractServerMutations<typeof serverClient>
-    const client = initClient<ServerMutations>({
+
+    const client = new ReplicacheClient<ServerMutations>({
+      name: "test replicache",
+      licenseKey: TEST_LICENSE_KEY,
+      pushURL: undefined,
+      pullURL: undefined,
+      kvStore: "mem",
+    }).build()
+
+    // To make it pass, we would need to implement createUser:
+    const correctClient = new ReplicacheClient<ServerMutations>({
       name: "test replicache",
       licenseKey: TEST_LICENSE_KEY,
       pushURL: undefined,
@@ -187,9 +196,12 @@ describe("ReplicacheClient", () => {
       kvStore: "mem",
     })
       .mutation(
-        "createUser2",
+        "createUser",
         type({ id: "number", name: "string" }),
-        async (input) => {},
+        async (tx, input) => {
+          await tx.set(`/user/${input.id}`, input)
+          return input
+        },
       )
       .build()
   })
