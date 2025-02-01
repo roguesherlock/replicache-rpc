@@ -123,11 +123,6 @@ type ClientAPI<
       ? MutationFnOut<SInput, SOutput, Output, S>
       : never
   }
-  _valid: [keyof SM] extends [keyof M]
-    ? true
-    : [keyof M] extends [keyof SM]
-      ? "Client has extra mutations not defined in server"
-      : "Client is missing mutations defined in server"
 }
 
 type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
@@ -262,6 +257,13 @@ export class ReplicacheClient<
   }
 
   build(): ClientAPI<ServerMutators, Mutators, Queries> {
+    type Valid = [keyof ServerMutators] extends [keyof Mutators]
+      ? true
+      : [keyof Mutators] extends [keyof ServerMutators]
+        ? "Client has extra mutations not defined in server"
+        : "Client is missing mutations defined in server"
+    const _valid: Valid = true as any
+
     type Client = ClientAPI<ServerMutators, Mutators, Queries>
     type ExpectedMutators = {
       [K in keyof Mutators]: Mutators[K] extends MutatorDef<
@@ -332,7 +334,6 @@ export class ReplicacheClient<
       rep,
       query,
       mutate,
-      _valid: true as any,
     }
   }
 }
