@@ -5,7 +5,9 @@ import {
   type WriteTransaction,
 } from "replicache"
 import { describe, expect, test } from "vitest"
-import { ReplicacheClient } from "./client"
+import { initClient, ReplicacheClient } from "./client"
+import { ReplicacheServer } from "./server"
+import type { ExtractServerMutations } from "./types"
 
 function createReplicacheClient() {
   return new ReplicacheClient({
@@ -169,5 +171,26 @@ describe("ReplicacheClient", () => {
 
     const result = await client.mutate.createUser({ id: 1, name: "Jean" })
     expect(result).toEqual({ id: 1, name: "Jean" })
+  })
+  test("correctly requires server mutations to be implemented", () => {
+    const serverClient = new ReplicacheServer().mutation(
+      "createUser",
+      type({ id: "number", name: "string" }),
+      async (input) => {},
+    )
+    type ServerMutations = ExtractServerMutations<typeof serverClient>
+    const client = initClient<ServerMutations>({
+      name: "test replicache",
+      licenseKey: TEST_LICENSE_KEY,
+      pushURL: undefined,
+      pullURL: undefined,
+      kvStore: "mem",
+    })
+      .mutation(
+        "createUser2",
+        type({ id: "number", name: "string" }),
+        async (input) => {},
+      )
+      .build()
   })
 })

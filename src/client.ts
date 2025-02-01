@@ -6,7 +6,7 @@ import {
   type ReplicacheOptions,
   type WriteTransaction,
 } from "replicache"
-import type { MaybePromise } from "./types"
+import type { MaybePromise, ServerMutations } from "./types"
 import { validate, type Schema } from "./util"
 
 type MutationFnIn<
@@ -348,8 +348,8 @@ export type ReplicacheClientAPI = Register extends {
 
 // Helper function to create a type-safe client.
 // The third generic (RequiredMutators) receives the ServerMutations.
-export function initClient<const ServerMutations extends AnyMutators>(
+export function initClient<const S extends ServerMutations<{}>>(
   options: ReplicacheClientOptions,
 ) {
-  return new ReplicacheClient<{}, {}, ServerMutations>(options)
+  return new ReplicacheClient<{}, {}, S>(options)
 }
