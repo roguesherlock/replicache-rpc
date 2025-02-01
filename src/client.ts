@@ -6,6 +6,7 @@ import {
   type ReplicacheOptions,
   type WriteTransaction,
 } from "replicache"
+import type { MaybePromise } from "./types"
 import { validate, type Schema } from "./util"
 
 type MutationFnIn<
@@ -55,25 +56,22 @@ type MutatorDef<
 type QueryFnIn<
   SInput,
   SOutput,
-  Output = any,
+  Output = MaybePromise<ReadonlyJSONValue>,
   S extends Schema<SInput, SOutput> = Schema<SInput, SOutput>,
-> = (
-  tx: ReadTransaction,
-  args: Schema.InferOutput<S>,
-) => Promise<Output> | Output
+> = (tx: ReadTransaction, args: Schema.InferOutput<S>) => Output
 
 type QueryFnOut<
   SInput,
   SOutput,
-  Output = any,
+  Output extends MaybePromise<ReadonlyJSONValue>,
   S extends Schema<SInput, SOutput> = Schema<SInput, SOutput>,
-> = (input: Schema.InferInput<S>) => Promise<Output> | Output
+> = (input: Schema.InferInput<S>) => Output
 
 type QueryDef<
   Name extends string,
   SInput,
   SOutput,
-  Output,
+  Output extends MaybePromise<ReadonlyJSONValue>,
   S extends Schema<SInput, SOutput> = Schema<SInput, SOutput>,
 > = {
   name: Name
@@ -81,10 +79,10 @@ type QueryDef<
   fn: QueryFnIn<SInput, SOutput, Output, S>
 }
 
-type ClientAPI<
-  Q extends Record<string, QueryDef<string, any, any, any>>,
-  M extends Record<string, MutatorDef<string, any, any, any>>,
-> = {
+type AnyQueries = Record<string, QueryDef<string, any, any, any>>
+type AnyMutators = Record<string, MutatorDef<string, any, any, any>>
+
+type ClientAPI<M extends AnyMutators, Q extends AnyQueries> = {
   rep: Replicache<{
     [K in keyof M]: M[K] extends MutatorDef<
       any,
@@ -104,7 +102,9 @@ type ClientAPI<
       infer Output,
       infer S
     >
-      ? QueryFnOut<SInput, SOutput, Output, S>
+      ? ((tx: ReadTransaction, args: Schema.InferOutput<S>) => Output) & {
+          once: QueryFnOut<SInput, SOutput, Output, S>
+        }
       : never
   }
   mutate: {
@@ -120,16 +120,17 @@ type ClientAPI<
   }
 }
 
+type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
 export class ReplicacheClient<
-  const Queries extends Record<string, QueryDef<string, any, any, any>> = {},
-  const Mutators extends Record<string, MutatorDef<string, any, any, any>> = {},
+  const Mutators extends AnyMutators = {},
+  const Queries extends AnyQueries = {},
 > {
   #queries: Queries
   #mutators: Mutators
-  #options: ReplicacheOptions<any>
+  #options: ReplicacheClientOptions
 
   constructor(
-    options: ReplicacheOptions<any>,
+    options: ReplicacheClientOptions,
     queries: Queries = {} as Queries,
     mutators: Mutators = {} as Mutators,
   ) {
@@ -153,8 +154,8 @@ export class ReplicacheClient<
           MutationFnInWithoutSchema<SInput, SOutput, Output>,
         ]
   ): ReplicacheClient<
-    Queries,
-    Mutators & { [K in Name]: MutatorDef<Name, SInput, SOutput, Output> }
+    Mutators & { [K in Name]: MutatorDef<Name, SInput, SOutput, Output> },
+    Queries
   > {
     const mutators: Mutators & {
       [K in Name]: MutatorDef<Name, SInput, SOutput, Output>
@@ -169,11 +170,19 @@ export class ReplicacheClient<
     return new ReplicacheClient(this.#options, this.#queries, mutators)
   }
 
-  query<const Name extends string, const SInput, const SOutput, const Output>(
+  query<
+    const Name extends string,
+    const SInput,
+    const SOutput,
+    const Output extends MaybePromise<ReadonlyJSONValue>,
+  >(
     name: Name,
     schema: Schema<SInput, SOutput>,
     queryFn: QueryFnIn<SInput, SOutput, Output>,
-  ) {
+  ): ReplicacheClient<
+    Mutators,
+    Queries & { [K in Name]: QueryDef<Name, SInput, SOutput, Output> }
+  > {
     const queries: Queries & {
       [K in Name]: QueryDef<Name, SInput, SOutput, Output>
     } = {
@@ -187,20 +196,8 @@ export class ReplicacheClient<
     return new ReplicacheClient(this.#options, queries, this.#mutators)
   }
 
-  build(): ClientAPI<Queries, Mutators> {
-    // const query: ClientAPI<Queries, Mutators>["query"] = Object.fromEntries(
-    //   Object.entries(this.#queries).map(([key, queryDef]) => {
-    //     return [
-    //       key,
-    //       async (
-    //         tx: ReadTransaction,
-    //         input: Schema.InferInput<typeof queryDef.schema>,
-    //       ) => queryDef.fn(tx, await validate(queryDef.schema, input)),
-    //     ]
-    //   }),
-    // ) as never
-
-    const query: ClientAPI<Queries, Mutators>["query"] = Object.fromEntries(
+  build(): ClientAPI<Mutators, Queries> {
+    const query: ClientAPI<Mutators, Queries>["query"] = Object.fromEntries(
       Object.entries(this.#queries).map(([key, queryDef]) => {
         async function queryFn(
           tx: ReadTransaction,
@@ -232,12 +229,12 @@ export class ReplicacheClient<
       }),
     )
 
-    const rep: Replicache = new Replicache<typeof mutators>({
+    const rep: ClientAPI<Mutators, Queries>["rep"] = new Replicache({
       ...this.#options,
       mutators,
-    })
+    }) as never
 
-    const mutate: ClientAPI<Queries, Mutators>["mutate"] = Object.fromEntries(
+    const mutate: ClientAPI<Mutators, Queries>["mutate"] = Object.fromEntries(
       Object.entries(this.#mutators).map(([key, mutatorDef]) => {
         return [
           key,
@@ -256,11 +253,21 @@ export class ReplicacheClient<
       rep,
       query,
       mutate,
-    } as never
+    }
   }
 }
 
-export type ReplicacheClientApi<
-  Q extends Record<string, QueryDef<string, any, any, any>> = {},
-  M extends Record<string, MutatorDef<string, any, any, any>> = {},
-> = ClientAPI<Q, M>
+export type MakeClientAPI<C extends ReplicacheClient<AnyMutators, AnyQueries>> =
+  C extends ReplicacheClient<infer M, infer Q> ? ClientAPI<M, Q> : never
+
+export interface Register {
+  // client: ReplicacheClient
+}
+
+export type AnyReplicacheClientAPI = ClientAPI<AnyMutators, AnyQueries>
+
+export type ReplicacheClientAAPI = Register extends {
+  client: infer C extends AnyReplicacheClientAPI
+}
+  ? C
+  : AnyReplicacheClientAPI
