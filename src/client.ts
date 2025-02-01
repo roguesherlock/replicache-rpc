@@ -121,6 +121,58 @@ type ClientAPI<M extends AnyMutators, Q extends AnyQueries> = {
 }
 
 type ReplicacheClientOptions = Omit<ReplicacheOptions<any>, "mutators">
+
+/**
+ * ReplicacheClient provides a type-safe builder pattern for creating Replicache clients
+ * with strongly-typed mutations and queries.
+ *
+ * @example
+ * ```typescript
+ * // Define your schemas (using zod or other schema validators)
+ * const todoSchema = z.object({
+ *   id: z.string(),
+ *   text: z.string(),
+ *   completed: z.boolean()
+ * });
+ *
+ * // Create a client
+ * const client = new ReplicacheClient({ name: "todo-app" })
+ *   // Add mutations
+ *   .mutation(
+ *     "createTodo",
+ *     todoSchema,
+ *     async (tx, todo) => {
+ *       await tx.put(`todo/${todo.id}`, todo);
+ *     }
+ *   )
+ *   // Add queries
+ *   .query(
+ *     "getTodos",
+ *     z.void(),
+ *     async (tx) => {
+ *       const todos = [];
+ *       for await (const [_, todo] of tx.scan({ prefix: "todo/" })) {
+ *         todos.push(todo);
+ *       }
+ *       return todos;
+ *     }
+ *   )
+ *   .build();
+ *
+ * // Use the typed client
+ * await client.mutate.createTodo({
+ *   id: "1",
+ *   text: "Buy milk",
+ *   completed: false
+ * });
+ *
+ * // Query data
+ * const todos = await client.query.getTodos.once();
+ * ```
+ *
+ * @template Mutators - Record of mutation definitions
+ * @template Queries - Record of query definitions
+ */
 export class ReplicacheClient<
   const Mutators extends AnyMutators = {},
   const Queries extends AnyQueries = {},
